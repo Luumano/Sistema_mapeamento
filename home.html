@@ -1,0 +1,271 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Roteamento Dinâmico UFC com Ícone Personalizado</title>
+<link
+  rel="stylesheet"
+  href="https://unpkg.com/leaflet/dist/leaflet.css"
+/>
+<link
+  rel="stylesheet"
+  href="https://unpkg.com/leaflet-routing-machine/dist/leaflet-routing-machine.css"
+/>
+<style>
+  #map {
+    height: 100vh;
+    width: 100%;
+  }
+  .custom-control {
+    background: white;
+    padding: 8px;
+    border-radius: 4px;
+    box-shadow: 0 0 5px rgba(0, 0, 0, 0.4);
+    margin: 5px;
+    font-family: Arial, sans-serif;
+    font-size: 14px;
+  }
+</style>
+</head>
+<body>
+  <div id="map"></div>
+
+  <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+  <script src="https://unpkg.com/leaflet-routing-machine/dist/leaflet-routing-machine.js"></script>
+
+  <script>
+    const destinationCoords = [-3.741154308024947, -38.50890014077862]; // FIEC
+
+    const map = L.map("map").setView(destinationCoords, 15);
+
+    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+      maxZoom: 19,
+      attribution: "© OpenStreetMap",
+    }).addTo(map);
+
+    // Ícone personalizado para a logo da FIEC (substitui o pin)
+    const fiecIcon = L.icon({
+      iconUrl: "img/smecee.png",
+      iconSize: [40, 40],
+      iconAnchor: [20, 40],
+      popupAnchor: [0, -40],
+    });
+
+    const popupContent = `
+      <div style="
+        max-width: 250px; 
+        font-family: Arial, sans-serif;
+        color: #003366;
+        background: #e6f0ff; 
+        border: 2px solid #003366; 
+        border-radius: 8px; 
+        padding: 10px;
+        text-align: center;
+      ">
+        <img src="img/logo.png" alt="Logo FIEC" style="width: 100px; margin-bottom: 10px;" />
+        <h3 style="margin: 0; color: #004080;">FIEC</h3>
+        <p style="margin: 5px 0; font-weight: bold;">Federação das Indústrias do Estado do Ceará</p>
+        <p style="margin: 5px 0;">Av. Barão de Studart, 1980 - Aldeota,<br>Fortaleza - CE, 60120-024</p>
+        <a href="https://www.fiec.org.br" target="_blank" style="color: #004080; text-decoration: underline;">Site oficial</a>
+      </div>
+    `;
+
+    const destinationMarker = L.marker(destinationCoords, { icon: fiecIcon })
+      .addTo(map)
+      .bindPopup(popupContent)
+      .openPopup();
+
+    // Reabre o popup se o usuário tentar fechá-lo
+    destinationMarker.on("popupclose", function () {
+      setTimeout(() => {
+        destinationMarker.openPopup();
+      }, 100);
+    });
+
+    let transporte = "driving";
+
+    const perfis = {
+      car: "driving",
+      bike: "cycling",
+      foot: "foot",
+    };
+
+    // Ícone do usuário (seta azul)
+    const userIcon = L.icon({
+      iconUrl:
+        "https://cdn-icons-png.flaticon.com/512/60/60995.png",
+      iconSize: [32, 32],
+      iconAnchor: [16, 16],
+    });
+
+    let userMarker = null;
+    let previousPosition = null;
+
+    let fullRouteLine = null;
+    let remainingRouteLine = null;
+    let routeCoords = [];
+
+    function calcularAngulo(p1, p2) {
+      const dy = p2[0] - p1[0];
+      const dx = p2[1] - p1[1];
+      const rad = Math.atan2(dy, dx);
+      const deg = (rad * 180) / Math.PI;
+      return deg;
+    }
+
+    function atualizarRota(origem) {
+      const url = `https://router.project-osrm.org/route/v1/${transporte}/${origem.lng},${origem.lat};${destinationCoords[1]},${destinationCoords[0]}?overview=full&geometries=geojson`;
+
+      fetch(url)
+        .then((response) => response.json())
+        .then((data) => {
+          if (data.code !== "Ok") {
+            alert("Erro ao obter rota: " + data.message);
+            return;
+          }
+
+          routeCoords = data.routes[0].geometry.coordinates.map((c) => [
+            c[1],
+            c[0],
+          ]);
+
+          if (fullRouteLine) map.removeLayer(fullRouteLine);
+          if (remainingRouteLine) map.removeLayer(remainingRouteLine);
+
+          fullRouteLine = L.polyline(routeCoords, {
+            color: "#bbb",
+            weight: 6,
+            opacity: 0.5,
+          }).addTo(map);
+
+          remainingRouteLine = L.polyline(routeCoords, {
+            color: "blue",
+            weight: 5,
+            opacity: 0.8,
+          }).addTo(map);
+        })
+        .catch((err) => {
+          alert("Erro ao obter rota.");
+          console.error(err);
+        });
+    }
+
+    function distancia(p1, p2) {
+      const R = 6371000;
+      const toRad = (deg) => (deg * Math.PI) / 180;
+
+      const dLat = toRad(p2[0] - p1[0]);
+      const dLng = toRad(p2[1] - p1[1]);
+      const lat1 = toRad(p1[0]);
+      const lat2 = toRad(p2[0]);
+
+      const a =
+        Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+        Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLng / 2) * Math.sin(dLng / 2);
+
+      const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+      return R * c;
+    }
+
+    function indiceMaisProximo(pos) {
+      let menorDist = Infinity;
+      let indice = 0;
+      for (let i = 0; i < routeCoords.length; i++) {
+        const d = distancia(pos, routeCoords[i]);
+        if (d < menorDist) {
+          menorDist = d;
+          indice = i;
+        }
+      }
+      return indice;
+    }
+
+    function atualizarRotaRestante(pos) {
+      if (!routeCoords.length) return;
+
+      const proxIndex = indiceMaisProximo(pos);
+
+      const restante = routeCoords.slice(proxIndex);
+
+      if (remainingRouteLine) {
+        map.removeLayer(remainingRouteLine);
+      }
+      remainingRouteLine = L.polyline(restante, {
+        color: "blue",
+        weight: 5,
+        opacity: 0.9,
+      }).addTo(map);
+    }
+
+    if (navigator.geolocation) {
+      navigator.geolocation.watchPosition(
+        (pos) => {
+          const latlng = [pos.coords.latitude, pos.coords.longitude];
+
+          if (!userMarker) {
+            userMarker = L.marker(latlng, { icon: userIcon })
+              .addTo(map)
+              .bindPopup("Você está aqui")
+              .openPopup();
+            map.setView(latlng, 15);
+
+            transporte = perfis["car"];
+            atualizarRota({ lat: latlng[0], lng: latlng[1] });
+            previousPosition = latlng;
+          } else {
+            userMarker.setLatLng(latlng);
+
+            if (previousPosition) {
+              const angle = calcularAngulo(previousPosition, latlng);
+              userMarker.getElement().style.transform = `rotate(${angle}deg)`;
+            }
+            previousPosition = latlng;
+
+            atualizarRotaRestante(latlng);
+          }
+        },
+        (err) => {
+          alert("Não foi possível rastrear a localização.");
+          console.error(err);
+        },
+        {
+          enableHighAccuracy: true,
+          maximumAge: 1000,
+          timeout: 10000,
+        }
+      );
+    } else {
+      alert("Seu navegador não suporta geolocalização.");
+    }
+
+    // Controle para escolher modo de transporte
+    const controleTransporte = L.control({ position: "topright" });
+    controleTransporte.onAdd = function () {
+      const div = L.DomUtil.create("div", "custom-control");
+      div.innerHTML = `
+            <b>Modo de Transporte</b><br>
+            <input type="radio" name="transport" value="car" checked> 🚗 Carro<br>
+            <input type="radio" name="transport" value="bike"> 🚴 Bicicleta<br>
+            <input type="radio" name="transport" value="foot"> 🚶 A pé<br>
+        `;
+
+      div.onclick = div.onmousedown = div.onmousemove = function (e) {
+        L.DomEvent.stopPropagation(e);
+      };
+
+      div.querySelectorAll('input[name="transport"]').forEach((input) => {
+        input.addEventListener("change", function (e) {
+          transporte = perfis[e.target.value];
+          if (userMarker) {
+            atualizarRota(userMarker.getLatLng());
+          }
+        });
+      });
+
+      return div;
+    };
+    controleTransporte.addTo(map);
+  </script>
+</body>
+</html>
