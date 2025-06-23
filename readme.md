@@ -14,7 +14,7 @@ Para que o sistema funcione corretamente, ele precisa estar dentro da pasta de h
 # 📂 Caminho padrão:
     - C:\wamp64\www
     - C:\wamp64\www\leaflet\
-    - http://localhost/mapa-fiec/home.html
+    - http://localhost/leaflet/home.html
     - Instale o Leaflet na pasta do projeto.
     
 ## ✅ Instalação do Leaflet
